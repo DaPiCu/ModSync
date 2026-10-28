@@ -1,11 +1,18 @@
+pub mod builder;
 pub mod curseforge;
+pub mod gradle;
 pub mod http;
 pub mod install;
+pub mod jdk;
 pub mod modrinth;
 pub mod models;
+pub mod overrides;
+pub mod patcher;
 pub mod resolve;
 pub mod scan;
 pub mod settings;
+pub mod sources;
+pub mod template;
 
 use models::*;
 use resolve::{CheckReport, Clients};
@@ -19,6 +26,7 @@ use tauri_plugin_opener::OpenerExt;
 struct AppState {
     cancel: Arc<AtomicBool>,
     busy: Arc<AtomicBool>,
+    child: gradle::ChildSlot,
 }
 
 /// Gibt `busy` beim Verlassen automatisch wieder frei.
@@ -125,6 +133,174 @@ async fn install_mods(
 #[tauri::command]
 fn cancel_operation(state: State<'_, AppState>) {
     state.cancel.store(true, Ordering::SeqCst);
+    if let Some(pid) = *state.child.lock().unwrap() {
+        gradle::kill_tree(pid);
+    }
+}
+
+// ---- Selbst bauen ------------------------------------------------------------------------
+
+fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_local_data_dir()
+        .map_err(|e| format!("Datenordner nicht gefunden: {e}"))
+}
+
+fn builds_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(data_dir(app)?.join("builds"))
+}
+
+fn jdks_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(data_dir(app)?.join("jdks"))
+}
+
+#[tauri::command]
+async fn build_branches(url: String, target: String) -> Result<sources::BranchInfo, String> {
+    let repo = sources::parse_github(&url)
+        .ok_or("Nur GitHub-Links werden unterstützt (https://github.com/besitzer/repo).")?;
+    sources::branches(&builder::Endpoints::default().github_api, &repo, &target).await
+}
+
+#[tauri::command]
+async fn build_prepare(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: builder::PrepareRequest,
+) -> Result<builder::Prepared, String> {
+    let _guard = acquire(&state)?;
+    let cancel = state.cancel.clone();
+    builder::prepare(&request, &builds_dir(&app)?, &builder::Endpoints::default(), &cancel).await
+}
+
+#[tauri::command]
+fn build_find_jdk(app: AppHandle, major: u32) -> Result<Option<jdk::Jdk>, String> {
+    Ok(jdk::pick(&jdk::find_all(&jdks_dir(&app)?), major))
+}
+
+#[tauri::command]
+async fn build_download_jdk(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    major: u32,
+) -> Result<jdk::Jdk, String> {
+    let _guard = acquire(&state)?;
+    let cancel = state.cancel.clone();
+    let dir = jdks_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let base = std::env::var("MODSYNC_ADOPTIUM_BASE").unwrap_or_else(|_| jdk::DEFAULT_ADOPTIUM.into());
+    let app2 = app.clone();
+    jdk::download(
+        &base,
+        major,
+        &dir,
+        move |done, total| {
+            let _ = app2.emit("jdk-progress", (done, total));
+        },
+        &cancel,
+    )
+    .await
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildRunResult {
+    #[serde(flatten)]
+    outcome: gradle::BuildOutcome,
+    output_jar: Option<String>,
+    hint: Option<String>,
+}
+
+#[tauri::command]
+async fn build_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    java_home: String,
+    target: String,
+) -> Result<BuildRunResult, String> {
+    if id.contains(['/', '\\']) || id.contains("..") {
+        return Err("Ungültige Build-ID.".into());
+    }
+    let work = builds_dir(&app)?.join(&id);
+    let project = work.join("src");
+    if !project.is_dir() {
+        return Err("Arbeitskopie nicht gefunden – bitte neu vorbereiten.".into());
+    }
+    let java = PathBuf::from(&java_home);
+    if jdk::inspect(&java).is_none() {
+        return Err("Das gewählte JDK ist ungültig.".into());
+    }
+    let _guard = acquire(&state)?;
+    let cancel = state.cancel.clone();
+    let app2 = app.clone();
+    let outcome = gradle::run(
+        &project,
+        &java,
+        &work.join("build.log"),
+        move |line| {
+            let _ = app2.emit("build-log", line);
+        },
+        &cancel,
+        state.child.clone(),
+    )
+    .await?;
+    let output_jar = match &outcome.jar {
+        Some(j) if outcome.success => Some(
+            builder::collect_output(&PathBuf::from(j), &work, &target)?
+                .to_string_lossy()
+                .to_string(),
+        ),
+        _ => None,
+    };
+    let hint = if outcome.success { None } else { gradle::hint(&outcome) };
+    Ok(BuildRunResult { outcome, output_jar, hint })
+}
+
+/// Kopiert eine gebaute JAR in den Zielordner (ohne zu überschreiben).
+#[tauri::command]
+fn build_install(app: AppHandle, jar: String, target_dir: String) -> Result<String, String> {
+    let jar = PathBuf::from(jar);
+    let builds = builds_dir(&app)?;
+    let canon = jar.canonicalize().map_err(|_| "Gebaute Datei nicht gefunden.".to_string())?;
+    let canon_builds = builds.canonicalize().map_err(|e| e.to_string())?;
+    if !canon.starts_with(&canon_builds) {
+        return Err("Nur von ModSync gebaute Dateien können installiert werden.".into());
+    }
+    if target_dir.trim().is_empty() {
+        return Err("Bitte einen Zielordner auswählen.".into());
+    }
+    let dir = PathBuf::from(target_dir);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Zielordner: {e}"))?;
+    let dest = dir.join(canon.file_name().unwrap());
+    if dest.exists() {
+        return Err("Im Zielordner liegt schon eine Datei mit diesem Namen – nicht überschrieben.".into());
+    }
+    std::fs::copy(&canon, &dest).map_err(|e| format!("Kopieren fehlgeschlagen: {e}"))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn override_check(mod_minecraft: Option<String>, target: String) -> Result<(), String> {
+    overrides::feasibility(mod_minecraft.as_deref(), &target)
+}
+
+#[tauri::command]
+fn override_install(
+    jar: String,
+    mod_id: String,
+    mod_minecraft: Option<String>,
+    target: String,
+    target_dir: String,
+) -> Result<overrides::OverrideResult, String> {
+    overrides::feasibility(mod_minecraft.as_deref(), &target)?;
+    if target_dir.trim().is_empty() {
+        return Err("Bitte einen Zielordner auswählen.".into());
+    }
+    let jar = PathBuf::from(jar);
+    if !jar.is_file() || jar.extension().map(|e| e != "jar").unwrap_or(true) {
+        return Err("Original-JAR nicht gefunden.".into());
+    }
+    overrides::install(&jar, &mod_id, &target, &PathBuf::from(target_dir))
 }
 
 #[tauri::command]
@@ -188,7 +364,15 @@ pub fn run() {
             set_cf_key,
             test_cf_key,
             open_url,
-            open_folder
+            open_folder,
+            build_branches,
+            build_prepare,
+            build_find_jdk,
+            build_download_jdk,
+            build_run,
+            build_install,
+            override_check,
+            override_install
         ])
         .run(tauri::generate_context!())
         .expect("ModSync konnte nicht gestartet werden");

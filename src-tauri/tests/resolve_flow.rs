@@ -23,6 +23,7 @@ fn local(name: &str, sha: &str, fp: u32, mod_id: Option<&str>) -> LocalMod {
             name: Some(name.into()),
             version: Some("1.0".into()),
             minecraft: Some("1.21.1".into()),
+            sources: None,
         }),
     }
 }

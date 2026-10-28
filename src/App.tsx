@@ -17,6 +17,8 @@ import {
 } from "./api";
 import Results from "./Results";
 import SettingsDialog from "./SettingsDialog";
+import BuildDialog from "./BuildDialog";
+import type { ResultRow } from "./api";
 
 const DEFAULT_SETTINGS: Settings = {
   sourceDir: "",
@@ -84,6 +86,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [cfKey, setCfKey] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [buildRow, setBuildRow] = useState<ResultRow | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
 
   // ---- Start ----------------------------------------------------------------------------
@@ -144,6 +147,13 @@ export default function App() {
     if (typeof dir !== "string") return;
     update({ [kind]: dir } as Partial<Settings>);
     if (kind === "sourceDir") void scan(dir);
+  }
+
+  async function pickTargetDir(): Promise<string | null> {
+    const dir = await open({ directory: true, multiple: false, title: "Zielordner auswählen" });
+    if (typeof dir !== "string") return null;
+    update({ targetDir: dir });
+    return dir;
   }
 
   async function scan(dir: string) {
@@ -269,6 +279,7 @@ export default function App() {
     return list;
   }, [versions, settings.showSnapshots, settings.gameVersion]);
 
+  const checkedTarget = useMemo<Target | null>(() => (reportTarget ? JSON.parse(reportTarget) : null), [reportTarget]);
   const targetChanged = report !== null && reportTarget !== JSON.stringify(targetOf(settings));
   const sameFolder = samePath(settings.sourceDir, settings.targetDir);
   const canCheck = !!mods && mods.length > 0 && !!settings.gameVersion && !busy;
@@ -507,6 +518,7 @@ export default function App() {
               installResults={installResults}
               disabled={!!busy}
               onCopyReport={copyReport}
+              onBuild={checkedTarget && ["fabric", "quilt"].includes(checkedTarget.loader) ? setBuildRow : undefined}
             />
           ) : (
             !busy && <EmptyState hasMods={!!mods && mods.length > 0} mods={mods} />
@@ -545,6 +557,17 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {buildRow && report && (
+        <BuildDialog
+          row={buildRow}
+          targetVersion={checkedTarget?.gameVersion ?? settings.gameVersion}
+          targetDir={settings.targetDir}
+          onPickTargetDir={pickTargetDir}
+          onClose={() => setBuildRow(null)}
+          onDone={(m) => setNotice(m)}
+        />
+      )}
 
       {showSettings && (
         <SettingsDialog

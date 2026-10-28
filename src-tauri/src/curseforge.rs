@@ -88,6 +88,7 @@ impl CfFile {
 #[serde(rename_all = "camelCase")]
 pub struct CfLinks {
     pub website_url: Option<String>,
+    pub source_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -70,6 +70,7 @@ pub struct MrProject {
     pub icon_url: Option<String>,
     #[serde(default)]
     pub project_type: String,
+    pub source_url: Option<String>,
 }
 
 impl MrProject {

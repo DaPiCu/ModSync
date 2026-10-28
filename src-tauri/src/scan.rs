@@ -165,6 +165,11 @@ pub fn parse_fabric(text: &str) -> Option<ModMeta> {
         name: json_str(&v, "name"),
         version: json_str(&v, "version"),
         minecraft: dep_to_string(v.get("depends").and_then(|d| d.get("minecraft"))),
+        sources: v
+            .get("contact")
+            .and_then(|c| c.get("sources"))
+            .and_then(|s| s.as_str())
+            .map(String::from),
     })
 }
 
@@ -192,6 +197,7 @@ pub fn parse_quilt(text: &str) -> Option<ModMeta> {
         name,
         version: json_str(ql, "version"),
         minecraft,
+        sources: None,
     })
 }
 
@@ -220,6 +226,7 @@ pub fn parse_mods_toml(text: &str, loader: &str) -> Option<ModMeta> {
         name: get("displayName"),
         version,
         minecraft,
+        sources: None,
     })
 }
 

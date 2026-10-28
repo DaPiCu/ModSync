@@ -133,6 +133,7 @@ fn known_on(
             url: p
                 .map(|p| p.url())
                 .unwrap_or_else(|| format!("https://modrinth.com/project/{pid}")),
+            source_url: p.and_then(|p| p.source_url.clone()).filter(|u| !u.is_empty()),
         });
     }
     if let Some(mid) = cf_mod {
@@ -144,6 +145,7 @@ fn known_on(
             url: m
                 .map(|m| m.url())
                 .unwrap_or_else(|| format!("https://www.curseforge.com/projects/{mid}")),
+            source_url: m.and_then(|m| m.links.source_url.clone()).filter(|u| !u.is_empty()),
         });
     }
     out

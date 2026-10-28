@@ -2,7 +2,7 @@
 
 ModSync ist eine Desktop-App für Windows 10 und 11. Sie nimmt den `mods`-Ordner einer bestehenden Minecraft-Instanz, sucht jede Mod auf **Modrinth** und **CurseForge** und zeigt, ob es eine Version für deine Ziel-Minecraft-Version und den gewählten Loader gibt. Die gefundenen Mods lädt sie in einen Ordner deiner Wahl.
 
-Am Code der Mods ändert ModSync nichts.
+Gibt es eine Mod nicht für die Zielversion, kann ModSync versuchen, sie **selbst zu bauen** (experimentell, siehe unten).
 
 ![ModSync – Ergebnisansicht](docs/screenshot.png)
 
@@ -22,6 +22,47 @@ Am Code der Mods ändert ModSync nichts.
 - **Bericht kopieren:** Eine Liste aller Mods mit Status und Link für die Zwischenablage.
 - **Sicherer API-Key:** Der CurseForge-API-Key liegt im Windows-Anmeldeinformationsspeicher, nicht in einer Datei.
 - **Einstellungen:** Ordner, Version, Loader und Optionen werden gespeichert.
+
+## Selbst bauen (experimentell, ab 0.2)
+
+Bei Mods mit dem Status „Nicht verfügbar“ oder „Nicht gefunden“ erscheint **Selbst bauen …**. Dann passiert Folgendes:
+
+1. **Quelle wählen:** ein GitHub-Repository (wird automatisch von Modrinth, CurseForge oder aus der `fabric.mod.json` übernommen, wenn vorhanden) mit Branch-Vorschlag, oder ein lokaler Projektordner.
+2. **Versionen holen:** ModSync lädt die offizielle Vorlage für die Zielversion. Das ist der passende Branch von [FabricMC/fabric-example-mod](https://github.com/FabricMC/fabric-example-mod) und enthält Loader, Fabric API, Loom, Gradle und Java.
+3. **Nur die Build-Konfiguration anpassen**, und zwar in einer Arbeitskopie:
+   - `gradle.properties` bzw. `gradle/libs.versions.toml`: Minecraft, Loader, Fabric API, Loom, ggf. Yarn
+   - `build.gradle(.kts)`:
+     - Loom-Plugin
+     - Java-Version
+     - bei 26.x zusätzlich: Mappings-Zeile entfernen und `modImplementation` → `implementation`
+   - `gradle-wrapper.properties`: Gradle-Version
+   - `fabric.mod.json`: `minecraft`, `fabricloader`, `java`
+
+   Alle Änderungen werden vor dem Build angezeigt. **Am Java-Code ändert ModSync nichts.**
+4. **Bauen** mit `gradlew build`, Live-Log und Abbrechen-Knopf. Fehlt das passende JDK, kann ModSync Eclipse Temurin herunterladen.
+5. **Ergebnis:**
+   - **Erfolg:** Eine JAR (`…+mc26.2-modsync.jar`). Sie ist kompiliert, aber im Spiel noch nicht getestet.
+   - **Fehler:** Eine Liste der Code-Stellen, die nicht mehr passen.
+
+![Selbst bauen – Plan vor dem Build](docs/build-plan.png)
+
+**Was nicht automatisch geht** (wird vorher erkannt und erklärt):
+- Mods mit **Yarn-Namen** → 26.x: Ab 26.1 gibt es nur noch Mojang-Namen. Dafür müsste der komplette Code umbenannt werden.
+- **Multiloader-Projekte** (Architectury)
+- **Rückportierung** von 26.x auf 1.x
+- Projekte **ohne Gradle-Wrapper**
+
+**Realistisch:** Kleine Versionssprünge bei einfachen Mods klappen oft. Bei großen Sprüngen scheitert der Build meistens an geänderten Minecraft-APIs. Dann zeigt ModSync, welche Stellen im Code angepasst werden müssen.
+
+**Sicherheit:** Ein Gradle-Build führt Code aus dem Projekt aus. ModSync baut deshalb erst nach ausdrücklicher Bestätigung. Nur Quellen nutzen, denen du vertraust.
+
+**Versionssperre aufheben:** Für vorhandene Fabric-JARs gibt es als zweite Option die offizielle Fabric-Funktion [Dependency Overrides](https://docs.fabricmc.net/players/troubleshooting/dependency-overrides). ModSync kopiert die unveränderte JAR und schreibt einen Eintrag in `config/fabric_loader_dependencies.json`. Das funktioniert nur bei kleinen Sprüngen. Bei 1.x → 26.x wird es abgelehnt, weil alte JARs dort grundsätzlich nicht laden.
+
+**Ablage:**
+- Arbeitskopien, Logs und gebaute JARs: `%LOCALAPPDATA%\net.dapicu.modsync\builds\`. Die letzten 12 werden behalten.
+- Heruntergeladene JDKs: `…\jdks\`
+
+Selbst gebaute Mods nur privat nutzen und nicht weiterverbreiten. Das hängt von der Lizenz der jeweiligen Mod ab.
 
 ## Voraussetzungen zum Bauen (einmalig)
 
@@ -47,8 +88,8 @@ npm run tauri build
 
 Nach `npm run tauri build` liegen hier:
 
-- Installer (NSIS): `src-tauri\target\release\bundle\nsis\ModSync_0.1.0_x64-setup.exe`
-- MSI: `src-tauri\target\release\bundle\msi\ModSync_0.1.0_x64_en-US.msi`
+- Installer (NSIS): `src-tauri\target\release\bundle\nsis\ModSync_0.2.0_x64-setup.exe`
+- MSI: `src-tauri\target\release\bundle\msi\ModSync_0.2.0_x64_en-US.msi`
 - Programm ohne Installation: `src-tauri\target\release\modsync.exe`
 
 Der erste Build dauert einige Minuten, weil alle Rust-Abhängigkeiten kompiliert werden.
@@ -98,6 +139,10 @@ Modrinth-Abfragen laufen ohne Anmeldung. Gesendet wird nur ein User-Agent (`DaPi
 | „Zu viele Anfragen“ | Kurz warten und erneut prüfen (Rate-Limit der Plattform). |
 | „Eine andere Datei mit gleichem Namen existiert bereits“ | ModSync überschreibt nichts. Die alte Datei im Zielordner selbst entfernen. |
 | „Prüfsumme stimmt nicht“ | Der Download war beschädigt und wurde verworfen. Einfach erneut installieren. |
+| Selbst bauen: „Could not resolve …“ | Eine Abhängigkeit (oft eine andere Mod wie Mod Menu) gibt es für die Zielversion nicht. Die Version in `gradle.properties` der Arbeitskopie anpassen, oder die Abhängigkeit entfernen. |
+| Selbst bauen: „cannot find symbol“ | Der Code nutzt Minecraft-Funktionen, die es nicht mehr gibt. Das muss im Code angepasst werden. |
+| Selbst bauen: erster Build dauert lange | Gradle lädt beim ersten Mal Minecraft und alle Bibliotheken herunter (mehrere Minuten). Danach geht es schneller. |
+| „GitHub-Anfragelimit erreicht“ | GitHub erlaubt ohne Anmeldung 60 Anfragen pro Stunde. Kurz warten oder den Quellcode als lokalen Ordner wählen. |
 
 ## Entwicklung
 
@@ -107,6 +152,7 @@ modsync/
 │  ├─ App.tsx              Hauptansicht, Ablauf
 │  ├─ Results.tsx          Ergebnisliste mit Filtern
 │  ├─ SettingsDialog.tsx   CurseForge-Key
+│  ├─ BuildDialog.tsx      Selbst bauen / Versionssperre aufheben
 │  └─ api.ts               Typen + Aufrufe ins Rust-Backend
 └─ src-tauri/              Rust-Backend
    ├─ src/scan.rs          JAR-Scan, Hashes, Metadaten
@@ -115,7 +161,20 @@ modsync/
    ├─ src/resolve.rs       Erkennung, Suche, Abhängigkeiten
    ├─ src/install.rs       Download, Prüfsumme, Schutz vor Überschreiben
    ├─ src/settings.rs      Einstellungen + Key im Windows-Tresor
+   ├─ src/template.rs      Offizielle Versionsvorlage (fabric-example-mod)
+   ├─ src/sources.rs       GitHub-Quellcode / lokaler Ordner
+   ├─ src/patcher.rs       Build-Konfiguration anpassen, Blocker erkennen
+   ├─ src/jdk.rs           JDK finden / herunterladen
+   ├─ src/gradle.rs        Build ausführen, Fehler zusammenfassen
+   ├─ src/builder.rs       Ablauf „Selbst bauen“
+   ├─ src/overrides.rs     Versionssperre per Dependency Override
    └─ tests/               End-to-End-Tests gegen nachgebaute APIs
+```
+
+Patcher von Hand auf einen Ordner anwenden (Entwicklerwerkzeug):
+
+```powershell
+cargo run --manifest-path src-tauri/Cargo.toml --example patch_dir -- <Projektordner> src-tauri/tests/fixtures/template-26.2
 ```
 
 Tests ausführen:

@@ -11,6 +11,9 @@ pub struct ModMeta {
     pub version: Option<String>,
     /// Minecraft-Abhängigkeit laut Metadaten (z. B. "~1.21.1")
     pub minecraft: Option<String>,
+    /// Quellcode-Link aus contact.sources
+    #[serde(default)]
+    pub sources: Option<String>,
 }
 
 /// Eine JAR im Quellordner.
@@ -150,6 +153,7 @@ pub struct KnownOn {
     pub project_id: String,
     pub project_name: String,
     pub url: String,
+    pub source_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

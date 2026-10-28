@@ -26,11 +26,13 @@ interface Props {
   installResults: Record<string, InstallResult>;
   disabled: boolean;
   onCopyReport: () => void;
+  /** Gesetzt, wenn „Selbst bauen“ für das aktuelle Ziel möglich ist (Fabric/Quilt). */
+  onBuild?: (row: ResultRow) => void;
 }
 
 const selectable = (r: ResultRow) => r.status === "available" && !!r.candidate?.downloadUrl;
 
-export default function Results({ rows, selected, setSelected, installResults, disabled, onCopyReport }: Props) {
+export default function Results({ rows, selected, setSelected, installResults, disabled, onCopyReport, onBuild }: Props) {
   const [filter, setFilter] = useState<Status | "all">("all");
   const [query, setQuery] = useState("");
 
@@ -130,6 +132,7 @@ export default function Results({ rows, selected, setSelected, installResults, d
             onToggle={() => toggle(r.key)}
             disabled={disabled}
             result={installResults[r.key]}
+            onBuild={onBuild}
           />
         ))}
       </div>
@@ -143,12 +146,14 @@ function Row({
   onToggle,
   disabled,
   result,
+  onBuild,
 }: {
   row: ResultRow;
   checked: boolean;
   onToggle: () => void;
   disabled: boolean;
   result?: InstallResult;
+  onBuild?: (row: ResultRow) => void;
 }) {
   const c = row.candidate;
   const st = STATUS[row.status];
@@ -219,14 +224,21 @@ function Row({
         <div className="status-msg" title={result?.message ?? row.message}>
           {result?.message ?? row.message}
         </div>
-        {link && (
-          <button
-            className={`link ${row.status === "manualDownload" ? "strong" : ""}`}
-            onClick={() => api.openUrl(link)}
-          >
-            {row.status === "manualDownload" ? "Download-Seite öffnen ↗" : "Projektseite ↗"}
-          </button>
-        )}
+        <div className="row-links">
+          {link && (
+            <button
+              className={`link ${row.status === "manualDownload" ? "strong" : ""}`}
+              onClick={() => api.openUrl(link)}
+            >
+              {row.status === "manualDownload" ? "Download-Seite öffnen ↗" : "Projektseite ↗"}
+            </button>
+          )}
+          {onBuild && (row.status === "notAvailable" || row.status === "notFound") && (
+            <button className="link build" disabled={disabled} onClick={() => onBuild(row)}>
+              Selbst bauen …
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

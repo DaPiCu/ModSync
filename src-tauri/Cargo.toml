@@ -1,6 +1,6 @@
 [package]
 name = "modsync"
-version = "0.1.0"
+version = "0.2.0"
 description = "Findet passende Mod-Versionen auf Modrinth und CurseForge und installiert sie"
 edition = "2021"
 
@@ -16,9 +16,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "gzip"] }
-tokio = { version = "1", features = ["fs", "io-util", "sync", "macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["fs", "io-util", "sync", "macros", "rt-multi-thread", "process", "time"] }
 futures-util = "0.3"
 sha1 = "0.10"
 sha2 = "0.10"
@@ -26,6 +26,9 @@ hex = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 toml = "0.8"
 url = "2"
+regex = "1"
+flate2 = "1"
+tar = "0.4"
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 
 [dev-dependencies]
