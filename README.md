@@ -6,6 +6,32 @@ Gibt es eine Mod nicht für die Zielversion, kann ModSync versuchen, sie **selbs
 
 ![ModSync – Ergebnisansicht](docs/screenshot.png)
 
+## Download & erster Start
+
+Den Installer `ModSync_x.y.z_x64-setup.exe` herunterladen und starten.
+
+### „Der Computer wurde durch Windows geschützt“
+
+Beim ersten Start zeigt Windows (Microsoft Defender SmartScreen) wahrscheinlich diesen blauen Hinweis. Das liegt nur daran, dass ModSync nicht mit einem kostenpflichtigen Code-Signing-Zertifikat signiert ist. Windows kennt die Datei deshalb noch nicht.
+
+![Windows-SmartScreen-Hinweis](https://drive.dapicu.com/u/aJLTRZ.png)
+
+So geht es weiter: **Weitere Informationen → Trotzdem ausführen**
+
+### VirusTotal-Scan
+
+Der Installer von Version 0.2.0 wurde bei VirusTotal mit 70 Virenscannern geprüft: **[Ergebnis ansehen](https://www.virustotal.com/gui/file/a78ffd754d8d2fb71db17ba45c833dcdb914662eb251f9f9f6b7f3d13caf51c2)**
+
+![VirusTotal-Scan von ModSync 0.2.0](docs/virustotal.png)
+
+68 von 70 Scannern finden nichts. Zwei Scanner, die nach Verhaltensmustern bewerten (Arctic Wolf, SecureAge), schlagen an. Das passiert bei neuen, unsignierten Programmen häufig. Bekannte Scanner wie BitDefender, Avast, AVG, CrowdStrike und ClamAV melden nichts. Der komplette Quellcode liegt in diesem Repository, und der Installer wird automatisch von GitHub Actions aus genau diesem Code gebaut.
+
+SHA-256 des Installers 0.2.0:
+```
+a78ffd754d8d2fb71db17ba45c833dcdb914662eb251f9f9f6b7f3d13caf51c2
+```
+Prüfen unter Windows: `Get-FileHash .\ModSync_0.2.0_x64-setup.exe`
+
 ## Funktionen
 
 - **Mods per Prüfsumme erkennen:** SHA-512 für Modrinth, Fingerprint (MurmurHash2) für CurseForge. Dateinamen spielen keine Rolle.
